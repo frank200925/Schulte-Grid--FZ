@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>舒尔特 Ultimate v11</title>
+    <style>
+        :root {
+            --cell-size: 60px;
+            --grid-cols: 5;
+            --bg-color: #f0f4f8;
+            --primary-color: #007aff;
+            --success-color: #34c759;
+            --error-color: #ff3b30;
+            --text-color: #1c1c1e;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            color: var(--text-color);
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+            transition: background 0.5s ease;
+        }
+
+        /* 背景层 */
+        #bgCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: 0; transition: opacity 1s; }
+        
+        @keyframes breath-anim { 0% { background-color: #e0f7fa; } 50% { background-color: #f3e5f5; } 100% { background-color: #e0f7fa; } }
+        .bg-breath { animation: breath-anim 6s infinite ease-in-out; }
+        .bg-gradient {
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient-anim 15s ease infinite; color: white !important;
+        }
+        @keyframes gradient-anim { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .bg-gradient .status-label, .bg-gradient .control-row span, .bg-gradient h1 { color: rgba(255,255,255,0.9) !important; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+
+        .top-bar { width: 100%; max-width: 600px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; z-index: 2; }
+        h1 { margin: 0; font-size: 1.2rem; color: var(--primary-color); font-weight: 800; }
+        .lang-select { padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(0,0,0,0.1); background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); cursor: pointer; outline: none; }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px);
+            padding: 15px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.05);
+            width: 100%; max-width: 600px; margin-bottom: 20px; box-sizing: border-box; z-index: 2;
+        }
+
+        .header { display: flex; justify-content: space-between; }
+        .status-box { text-align: center; flex: 1; }
+        .status-label { font-size: 11px; color: #8e8e93; text-transform: uppercase; margin-bottom: 4px; }
+        .status-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        #bestTime { color: #ff9500; } #timer { color: var(--primary-color); } #nextNum { color: var(--success-color); font-size: 1.6rem; }
+
+        .controls { display: flex; flex-direction: column; gap: 12px; }
+        .control-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+        
+        select, button, input[type="color"] { padding: 8px 12px; border-radius: 8px; border: 1px solid #e5e5ea; background: #fff; font-size: 0.9rem; flex: 1; }
+        input[type="color"] { flex: 0 0 40px; padding: 0; height: 36px; cursor: pointer; border: none; overflow: hidden; }
+        
+        button.primary-btn {
+            background: linear-gradient(135deg, #007aff, #0056b3); color: white; border: none; font-weight: bold; padding: 12px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,122,255,0.3);
+        }
+        button.primary-btn:active { transform: scale(0.98); }
+
+        .game-container {
+            position: relative; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.9);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.08); max-width: 100%; z-index: 1; overflow: visible;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(var(--grid-cols), var(--cell-size));
+            grid-template-rows: repeat(var(--grid-cols), var(--cell-size));
+            gap: 8px;
+            transition: filter 0.3s ease; /* 平滑过渡模糊效果 */
+        }
+        
+        /* === 核心修改：两种模糊等级 === */
+        
+        /* 轻微模糊：用于预览模式，看得清但有美感 */
+        .grid.blur-light { 
+            filter: blur(4px); 
+            pointer-events: none; 
+        }
+
+        /* 重度模糊：用于盲开模式和暂停，完全看不清 */
+        .grid.blur-heavy { 
+            filter: blur(20px); 
+            pointer-events: none; 
+        }
+
+        .cell {
+            width: 100%; height: 100%; background-color: #f2f2f7; color: var(--text-color);
+            display: flex; justify-content: center; align-items: center;
+            font-size: calc(var(--cell-size) * 0.45); font-weight: 700; border-radius: 12px;
+            cursor: pointer; touch-action: manipulation;
+            box-shadow: 0 4px 0 #d1d1d6;
+            transition: transform 0.1s, box-shadow 0.1s, background-color 0.2s;
+        }
+        .cell:active { transform: translateY(4px); box-shadow: 0 0 0 #d1d1d6; }
+        .cell.correct { background-color: var(--success-color); color: white; box-shadow: 0 4px 0 #248a3d; animation: jelly 0.4s forwards; }
+        .cell.flash-correct { animation: flashGreen 0.4s ease forwards; }
+        .cell.wrong { background-color: var(--error-color); color: white; box-shadow: 0 4px 0 #b3261e; animation: shake 0.4s both; }
+
+        @keyframes jelly { 0% { transform: scale(0.9) translateY(4px); } 30% { transform: scale(1.1) translateY(0); } 100% { transform: scale(1) translateY(0); } }
+        @keyframes flashGreen { 0% { background-color: var(--success-color); color: white; transform: scale(0.95); } 50% { background-color: var(--success-color); color: white; transform: scale(1.05); } 100% { background-color: #f2f2f7; color: var(--text-color); transform: scale(1); } }
+        @keyframes shake { 10%, 90% { transform: translate3d(-1px, 0, 0); } 20%, 80% { transform: translate3d(2px, 0, 0); } 30%, 50%, 70% { transform: translate3d(-4px, 0, 0); } 40%, 60% { transform: translate3d(4px, 0, 0); } }
+
+        /* 遮罩层 */
+        .overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 10; border-radius: 16px;
+            background: transparent;
+        }
+
+        /* 盲开模式才加白色背景，可见模式完全透明靠Grid模糊 */
+        .overlay.mode-blind {
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(10px);
+        }
+        
+        #overlayMain {
+            font-size: 5rem; 
+            font-weight: 900; 
+            color: var(--primary-color);
+            text-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            background: rgba(255,255,255,0.85);
+            padding: 10px 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            backdrop-filter: blur(5px);
+        }
+
+        .overlay-text { font-size: 1.5rem; color: #666; font-weight: bold; margin-top: 10px; background: rgba(255,255,255,0.8); padding: 5px 15px; border-radius: 10px;}
+
+        /* 弹窗 */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); backdrop-filter: blur(8px);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal-card {
+            background: white; width: 85%; max-width: 320px; padding: 25px;
+            border-radius: 24px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            transform: scale(0.8); transition: transform 0.3s;
+        }
+        .modal-overlay.active .modal-card { transform: scale(1); }
+        .modal-btn-group { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+        .modal-btn { border: none; padding: 12px 20px; border-radius: 50px; font-weight: bold; cursor: pointer; width: 100%; }
+        .primary { background: var(--primary-color); color: white; }
+        .secondary { background: #f2f2f7; color: var(--primary-color); }
+
+        #confettiCanvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 99; }
+        .hidden { display: none !important; }
+        
+        input[type=range] { flex: 1; height: 6px; background: #e5e5ea; border-radius: 3px; -webkit-appearance: none; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: var(--primary-color); border-radius: 50%; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body>
+    
+    <canvas id="bgCanvas"></canvas>
+    <canvas id="confettiCanvas"></canvas>
+
+    <!-- 结算弹窗 -->
+    <div class="modal-overlay" id="resultModal">
+        <div class="modal-card">
+            <h2 id="modalTitle" style="margin:0;color:var(--primary-color)">挑战成功</h2>
+            <div id="modalTimeValue" style="font-size:2.5rem;font-weight:900;margin:10px 0;">0.00</div>
+            <div id="modalRecordTag" style="color:#ff9500;font-weight:bold;">🎉 新纪录!</div>
+            <div class="modal-btn-group">
+                <button class="modal-btn primary" id="btnRestart" onclick="closeModalAndRestart()">再玩一次</button>
+                <button class="modal-btn secondary" id="btnBack" onclick="returnToMenu()">返回菜单</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="top-bar">
+        <h1 id="appTitle">舒尔特 Ultimate</h1>
+        <select class="lang-select" onchange="changeLanguage(this.value)" id="langSelect">
+            <option value="zh">🇨🇳 中文</option>
+            <option value="tc">🇭🇰 繁體</option>
+            <option value="en">🇺🇸 EN</option>
+            <option value="jp">🇯🇵 JP</option>
+        </select>
+    </div>
+
+    <!-- 顶部数据 -->
+    <div class="glass-panel header">
+        <div class="status-box">
+            <div class="status-label" id="lblBest">最佳纪录</div>
+            <div class="status-value" id="bestTime">--</div>
+        </div>
+        <div class="status-box">
+            <div class="status-label" id="lblNext">目标</div>
+            <div class="status-value" id="nextNum">1</div>
+        </div>
+        <div class="status-box">
+            <div class="status-label" id="lblTime">时间</div>
+            <div class="status-value" id="timer">0.00</div>
+        </div>
+    </div>
+
+    <!-- 控制面板 -->
+    <div class="glass-panel controls">
+        <div class="control-row">
+            <select id="gridSize" onchange="loadBestTime()">
+                <option value="3">3 x 3</option>
+                <option value="4">4 x 4</option>
+                <option value="5" selected>5 x 5</option>
+                <option value="6">6 x 6</option>
+                <option value="7">7 x 7</option>
+                <option value="8">8 x 8</option>
+            </select>
+            <select id="gameMode">
+                <option value="classic">🟢 经典 (保留)</option>
+                <option value="memory">🧠 记忆 (消失)</option>
+            </select>
+        </div>
+
+        <div class="control-row">
+             <select id="previewMode">
+                <option value="visible">👁️ 可见 (预览)</option>
+                <option value="blind">🌫️ 模糊 (盲开)</option>
+            </select>
+            <select id="bgStyle" onchange="changeBackground(this.value)">
+                <option value="default">⚪ 默认灰</option>
+                <option value="breath">🌬️ 呼吸模式</option>
+                <option value="particles">✨ 粒子特效</option>
+                <option value="gradient">🌈 流光渐变</option>
+                <option value="shapes">🔷 漂浮几何</option>
+                <option value="custom">🎨 自定义色</option>
+            </select>
+            <input type="color" id="customBgColor" value="#ffffff" onchange="applyCustomBg(this.value)" style="display:none;">
+            <label style="font-size:0.9rem;display:flex;align-items:center;padding:5px;">
+                <input type="checkbox" id="soundToggle" checked> 🔊
+            </label>
+        </div>
+
+        <div class="control-row">
+            <span id="lblSize" style="font-size:12px;color:#666;">大小:</span>
+            <input type="range" id="cellSize" min="30" max="100" value="60">
+        </div>
+        <div style="font-size:0.8rem; color:#888; text-align:center; margin-top:-5px;">* 按 ESC 键暂停游戏</div>
+
+        <button id="btnStart" class="primary-btn" onclick="prepareGame()">开始挑战</button>
+    </div>
+
+    <div class="game-container">
+        <!-- 倒计时/暂停遮罩 -->
+        <div id="gameOverlay" class="overlay hidden">
+            <div id="overlayMain">3</div>
+            <div id="overlaySub" class="overlay-text hidden">PAUSED</div>
+        </div>
+        <div class="grid" id="grid"></div>
+    </div>
+
+    <script>
+        const translations = {
+            zh: {
+                title: "舒尔特 Ultimate",
+                lblBest: "最佳纪录", lblNext: "当前目标", lblTime: "当前时间", lblSize: "格子大小:",
+                btnStart: "开始挑战", btnRestart: "再玩一次", btnBack: "返回菜单",
+                modalTitle: "挑战成功!", modalNew: "🎉 新纪录!", modalNormal: "完成挑战",
+                bg: { default: "⚪ 默认灰", breath: "🌬️ 呼吸模式", particles: "✨ 粒子特效", gradient: "🌈 流光渐变", shapes: "🔷 漂浮几何", custom: "🎨 自定义色" },
+                mode: { classic: "🟢 经典 (保留)", memory: "🧠 记忆 (消失)" },
+                preview: { visible: "👁️ 可见 (预览)", blind: "🌫️ 模糊 (盲开)" },
+                diff: ["简单", "普通", "标准", "困难", "挑战", "极限"],
+                paused: "已暂停", resume: "按 ESC 继续"
+            },
+            tc: {
+                title: "舒爾特 Ultimate",
+                lblBest: "最佳紀錄", lblNext: "當前目標", lblTime: "當前時間", lblSize: "格子大小:",
+                btnStart: "開始挑戰", btnRestart: "再玩一次", btnBack: "返回菜單",
+                modalTitle: "挑戰成功!", modalNew: "🎉 新紀錄!", modalNormal: "完成挑戰",
+                bg: { default: "⚪ 默認灰", breath: "🌬️ 呼吸模式", particles: "✨ 粒子特效", gradient: "🌈 流光漸變", shapes: "🔷 漂浮幾何", custom: "🎨 自定義色" },
+                mode: { classic: "🟢 經典 (保留)", memory: "🧠 記憶 (消失)" },
+                preview: { visible: "👁️ 可見 (預覽)", blind: "🌫️ 模糊 (盲開)" },
+                diff: ["簡單", "普通", "標準", "困難", "挑戰", "極限"],
+                paused: "已暫停", resume: "按 ESC 繼續"
+            },
+            en: {
+                title: "Schulte Ultimate",
+                lblBest: "Best", lblNext: "Target", lblTime: "Time", lblSize: "Size:",
+                btnStart: "Start", btnRestart: "Play Again", btnBack: "Menu",
+                modalTitle: "Awesome!", modalNew: "🎉 New Record!", modalNormal: "Good Job",
+                bg: { default: "⚪ Default", breath: "🌬️ Breathing", particles: "✨ Particles", gradient: "🌈 Gradient", shapes: "🔷 Shapes", custom: "🎨 Custom" },
+                mode: { classic: "🟢 Classic", memory: "🧠 Memory" },
+                preview: { visible: "👁️ Visible", blind: "🌫️ Blind Start" },
+                diff: ["Easy", "Normal", "Standard", "Hard", "Challenge", "Extreme"],
+                paused: "PAUSED", resume: "Press ESC"
+            },
+            jp: {
+                title: "シュルテ Ultimate",
+                lblBest: "ベスト", lblNext: "目標", lblTime: "タイム", lblSize: "サイズ:",
+                btnStart: "スタート", btnRestart: "もう一度", btnBack: "メニュー",
+                modalTitle: "クリア!", modalNew: "🎉 新記録!", modalNormal: "お疲れ様",
+                bg: { default: "⚪ 標準", breath: "🌬️ 呼吸", particles: "✨ 粒子", gradient: "🌈 虹色", shapes: "🔷 幾何学", custom: "🎨 自由色" },
+                mode: { classic: "🟢 標準", memory: "🧠 記憶" },
+                preview: { visible: "👁️ 表示", blind: "🌫️ 非表示" },
+                diff: ["簡単", "普通", "標準", "難しい", "挑戦", "極限"],
+                paused: "一時停止", resume: "ESCで再開"
+            }
+        };
+
+        let currentLang = 'zh';
+        let isPlaying = false;
+        let isPaused = false;
+        let currentNumber = 1;
+        let maxNumber = 25;
+        let timerInterval;
+        let countdownInterval;
+        let startTime; 
+        let elapsedBeforePause = 0;
+        let bgAnimationId;
+        
+        let audioCtx;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch(e) {
+            console.log("Audio not supported");
+        }
+
+        window.onload = () => {
+            initLanguage();
+            updateCellSize();
+            loadBestTime();
+            changeBackground('default');
+            
+            document.addEventListener('keydown', (e) => {
+                if (e.key === "Escape" && isPlaying) {
+                    togglePause();
+                }
+            });
+        };
+
+        document.getElementById('cellSize').addEventListener('input', updateCellSize);
+        function updateCellSize() {
+            document.documentElement.style.setProperty('--cell-size', document.getElementById('cellSize').value + 'px');
+        }
+
+        function initLanguage() {
+            const saved = localStorage.getItem('schulte_lang');
+            if (saved && translations[saved]) currentLang = saved;
+            document.getElementById('langSelect').value = currentLang;
+            applyLanguage(currentLang);
+        }
+        function changeLanguage(val) {
+            currentLang = val;
+            localStorage.setItem('schulte_lang', val);
+            applyLanguage(val);
+        }
+        function applyLanguage(lang) {
+            const t = translations[lang];
+            const ids = ['appTitle', 'lblBest', 'lblNext', 'lblTime', 'lblSize', 'btnStart', 'btnRestart', 'btnBack', 'modalTitle'];
+            ids.forEach(id => { if(document.getElementById(id)) document.getElementById(id).textContent = t[id]; });
+
+            updateSelectOptions('bgStyle', t.bg);
+            updateSelectOptions('gameMode', t.mode);
+            updateSelectOptions('previewMode', t.preview);
+
+            const sizeSelect = document.getElementById('gridSize');
+            Array.from(sizeSelect.options).forEach((opt, i) => { 
+                const s = parseInt(opt.value);
+                opt.text = `${s} x ${s} (${t.diff[i]||""})`;
+            });
+        }
+        function updateSelectOptions(id, data) {
+            const sel = document.getElementById(id);
+            Array.from(sel.options).forEach(opt => { if(data[opt.value]) opt.text = data[opt.value]; });
+        }
+
+        function changeBackground(type) {
+            const body = document.body;
+            const canvas = document.getElementById('bgCanvas');
+            const customInput = document.getElementById('customBgColor');
+            body.className = ''; body.style.background = ''; canvas.style.opacity = 0; customInput.style.display = 'none';
+            cancelAnimationFrame(bgAnimationId);
+
+            switch(type) {
+                case 'default': body.style.background = '#f0f4f8'; break;
+                case 'breath': body.classList.add('bg-breath'); break;
+                case 'gradient': body.classList.add('bg-gradient'); break;
+                case 'custom': customInput.style.display = 'inline-block'; applyCustomBg(customInput.value); break;
+                case 'particles': body.style.background = '#222'; canvas.style.opacity = 1; initParticles(); break;
+                case 'shapes': body.style.background = '#eef2f3'; canvas.style.opacity = 0.6; initShapes(); break;
+            }
+        }
+        function applyCustomBg(c) { document.body.style.background = c; }
+        
+        function initParticles() {
+            const ctx = document.getElementById('bgCanvas').getContext('2d');
+            let w = window.innerWidth, h = window.innerHeight;
+            document.getElementById('bgCanvas').width = w; document.getElementById('bgCanvas').height = h;
+            const ps = Array.from({length:50},()=>({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5),vy:(Math.random()-0.5)}));
+            function d(){
+                ctx.clearRect(0,0,w,h); ctx.fillStyle='rgba(255,255,255,0.7)';
+                ps.forEach(p=>{
+                    p.x+=p.vx; p.y+=p.vy; if(p.x<0||p.x>w)p.vx*=-1; if(p.y<0||p.y>h)p.vy*=-1;
+                    ctx.beginPath(); ctx.arc(p.x,p.y,2,0,Math.PI*2); ctx.fill();
+                });
+                bgAnimationId=requestAnimationFrame(d);
+            }
+            d();
+        }
+        function initShapes() {
+            const ctx = document.getElementById('bgCanvas').getContext('2d');
+            let w = window.innerWidth, h = window.innerHeight;
+            document.getElementById('bgCanvas').width = w; document.getElementById('bgCanvas').height = h;
+            const sh = Array.from({length:15},()=>({x:Math.random()*w,y:Math.random()*h,vy:-Math.random()-0.5,s:Math.random()*40+10,c:`hsla(${Math.random()*360},70%,70%,0.3)`}));
+            function d(){
+                ctx.clearRect(0,0,w,h);
+                sh.forEach(s=>{
+                    s.y+=s.vy; if(s.y<-50)s.y=h+50;
+                    ctx.fillStyle=s.c; ctx.beginPath(); ctx.rect(s.x,s.y,s.s,s.s); ctx.fill();
+                });
+                bgAnimationId=requestAnimationFrame(d);
+            }
+            d();
+        }
+
+        function loadBestTime() {
+            const n = document.getElementById('gridSize').value;
+            const t = localStorage.getItem('schulte_best_'+n);
+            document.getElementById('bestTime').textContent = t || '--';
+        }
+
+        function prepareGame() {
+            clearInterval(timerInterval);
+            clearInterval(countdownInterval);
+            isPlaying = false; 
+            isPaused = false;
+            
+            document.getElementById('resultModal').classList.remove('active');
+            
+            generateGrid();
+            
+            const overlay = document.getElementById('gameOverlay');
+            const mainTxt = document.getElementById('overlayMain');
+            const subTxt = document.getElementById('overlaySub');
+            const grid = document.getElementById('grid');
+            const previewMode = document.getElementById('previewMode').value;
+            
+            overlay.classList.remove('hidden');
+            overlay.classList.remove('mode-blind'); // 先重置
+            subTxt.classList.add('hidden');
+            grid.classList.remove('blur-light', 'blur-heavy'); // 清除旧类
+
+            if (previewMode === 'blind') {
+                grid.classList.add('blur-heavy');
+                overlay.classList.add('mode-blind'); 
+            } else {
+                // 可见模式：轻微模糊
+                grid.classList.add('blur-light');
+            }
+
+            let count = 3; 
+            mainTxt.textContent = count; 
+            safePlayTone(600, 0.05);
+
+            countdownInterval = setInterval(()=>{
+                count--;
+                if(count>0) { 
+                    mainTxt.textContent=count; 
+                    safePlayTone(600,0.05); 
+                }
+                else {
+                    clearInterval(countdownInterval);
+                    mainTxt.textContent="GO!"; 
+                    safePlayTone(1000,0.1);
+                    setTimeout(()=>{ 
+                        overlay.classList.add('hidden'); 
+                        grid.classList.remove('blur-light', 'blur-heavy'); // 开始后变清晰
+                        startGame(); 
+                    }, 400);
+                }
+            }, 800);
+        }
+
+        function generateGrid() {
+            const n = parseInt(document.getElementById('gridSize').value);
+            maxNumber = n*n; currentNumber=1;
+            document.getElementById('nextNum').textContent=1;
+            document.getElementById('timer').textContent="0.00";
+            document.documentElement.style.setProperty('--grid-cols', n);
+            
+            const nums = Array.from({length:maxNumber},(_,i)=>i+1);
+            for(let i=nums.length-1;i>0;i--){
+                const j=Math.floor(Math.random()*(i+1));
+                [nums[i],nums[j]]=[nums[j],nums[i]];
+            }
+
+            const grid = document.getElementById('grid');
+            grid.innerHTML='';
+            grid.classList.remove('blur-light', 'blur-heavy');
+            nums.forEach(num=>{
+                const c = document.createElement('div');
+                c.className='cell'; c.textContent=num;
+                const action = (e)=>{ e.preventDefault(); checkCell(c, num); };
+                c.addEventListener('mousedown', action);
+                c.addEventListener('touchstart', action, {passive:false});
+                grid.appendChild(c);
+            });
+        }
+
+        function startGame() {
+            isPlaying = true;
+            isPaused = false;
+            elapsedBeforePause = 0;
+            startTime = Date.now();
+            
+            timerInterval = setInterval(updateTimer, 30);
+        }
+        
+        function updateTimer() {
+            if (!isPlaying || isPaused) return;
+            const now = Date.now();
+            const totalSeconds = (elapsedBeforePause + (now - startTime)) / 1000;
+            document.getElementById('timer').textContent = totalSeconds.toFixed(2);
+        }
+
+        function togglePause() {
+            if (!isPlaying) return;
+            const grid = document.getElementById('grid');
+            const overlay = document.getElementById('gameOverlay');
+            const mainTxt = document.getElementById('overlayMain');
+            const subTxt = document.getElementById('overlaySub');
+            const t = translations[currentLang];
+
+            if (isPaused) {
+                isPaused = false;
+                startTime = Date.now();
+                timerInterval = setInterval(updateTimer, 30);
+                overlay.classList.add('hidden');
+                overlay.classList.remove('mode-blind');
+                grid.classList.remove('blur-heavy'); // 恢复清晰
+            } else {
+                isPaused = true;
+                clearInterval(timerInterval);
+                elapsedBeforePause += Date.now() - startTime;
+                overlay.classList.remove('hidden');
+                overlay.classList.add('mode-blind'); // 暂停加背景
+                grid.classList.add('blur-heavy'); // 暂停加重模糊
+                mainTxt.textContent = t.paused;
+                subTxt.textContent = t.resume;
+                subTxt.classList.remove('hidden');
+            }
+        }
+
+        function checkCell(cell, num) {
+            if(!isPlaying || isPaused) return;
+            if(cell.classList.contains('correct') || cell.dataset.done) return;
+
+            if(num === currentNumber) {
+                safePlayTone(800, 0.1); setTimeout(()=>safePlayTone(1200,0.1),50);
+                
+                const mode = document.getElementById('gameMode').value;
+                if(mode === 'classic') {
+                    cell.classList.add('correct');
+                } else {
+                    cell.classList.add('flash-correct');
+                    cell.dataset.done = "true";
+                    setTimeout(()=>cell.classList.remove('flash-correct'), 400);
+                }
+
+                currentNumber++;
+                if(currentNumber > maxNumber) endGame();
+                else document.getElementById('nextNum').textContent = currentNumber;
+            } else {
+                safePlayTone(150, 0.3, 'sawtooth');
+                cell.classList.add('wrong');
+                setTimeout(()=>cell.classList.remove('wrong'), 400);
+            }
+        }
+
+        function endGame() {
+            clearInterval(timerInterval); isPlaying=false;
+            const time = document.getElementById('timer').textContent;
+            
+            [523, 659, 783, 1046].forEach((f,i)=>setTimeout(()=>safePlayTone(f,0.4),i*100));
+            fireConfetti();
+
+            const n = document.getElementById('gridSize').value;
+            const key = 'schulte_best_'+n;
+            const best = localStorage.getItem(key);
+            let isNew = false;
+            if(!best || parseFloat(time) < parseFloat(best)) {
+                localStorage.setItem(key, time);
+                document.getElementById('bestTime').textContent = time;
+                isNew = true;
+            }
+
+            const t = translations[currentLang];
+            document.getElementById('modalTimeValue').textContent = time;
+            document.getElementById('modalRecordTag').textContent = isNew ? t.modalNew : t.modalNormal;
+            document.getElementById('resultModal').classList.add('active');
+        }
+
+        function closeModalAndRestart() { prepareGame(); }
+        function returnToMenu() {
+            document.getElementById('resultModal').classList.remove('active');
+            isPlaying=false; generateGrid();
+            document.getElementById('timer').textContent="0.00";
+            document.getElementById('nextNum').textContent="1";
+        }
+
+        function safePlayTone(freq, dur, type='sine') {
+            try {
+                if(!audioCtx) return;
+                if(!document.getElementById('soundToggle').checked) return;
+                if(audioCtx.state==='suspended') audioCtx.resume();
+                
+                const o = audioCtx.createOscillator(); 
+                const g = audioCtx.createGain();
+                o.type=type; o.frequency.value=freq;
+                o.connect(g); g.connect(audioCtx.destination);
+                o.start(); g.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime+dur);
+                o.stop(audioCtx.currentTime+dur);
+            } catch(e) {
+                console.warn("Audio error:", e);
+            }
+        }
+
+        function fireConfetti() {
+            const c = document.getElementById('confettiCanvas'); const ctx = c.getContext('2d');
+            c.width = window.innerWidth; c.height = window.innerHeight;
+            let ps = Array.from({length:150},()=>({x:c.width/2,y:c.height/2,vx:(Math.random()-0.5)*20,vy:(Math.random()-0.5)*20-5,color:`hsl(${Math.random()*360},100%,50%)`,life:100}));
+            function u(){
+                ctx.clearRect(0,0,c.width,c.height); let act = false;
+                ps.forEach(p=>{
+                    if(p.life>0){ p.x+=p.vx; p.y+=p.vy; p.vy+=0.5; p.life--; ctx.fillStyle=p.color; ctx.fillRect(p.x,p.y,5,5); act=true; }
+                });
+                if(act) requestAnimationFrame(u);
+            }
+            u();
+        }
+    </script>
+</body>
+</html>
